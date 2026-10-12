@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#123c46" />
+    <meta
+      name="description"
+      content="Pennis. Phone tennis. Je telefoon is je racket."
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Pennis" />
+    <title>Pennis — phone tennis</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./vendor/vue.js" defer></script>
+    <script src="./vendor/qrcode.js" defer></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div id="loading">pennis<span>De baan wordt klaargezet…</span></div>
+    <div id="app" v-cloak :class="isPhone ? 'phone-app' : 'desktop-app'">
+      <div class="app-shell" :class="{ 'phone-shell': isPhone }">
+        <canvas
+          v-if="!isPhone"
+          id="game-court"
+          aria-label="First-person tennisbaan. Jouw racket beweegt met je telefoon."
+        ></canvas>
+        <div v-if="!isPhone && page === 'home'" class="home-shade"></div>
+        <header class="topbar">
+          <button
+            class="brand"
+            @click="leaveGame"
+            aria-label="Pennis startpagina"
+          >
+            <span class="brand-ball">◒</span>pennis<span class="brand-caption"
+              >phone tennis</span
+            >
+          </button>
+          <div
+            v-if="!isPhone && (page === 'play' || page === 'lobby')"
+            class="scoreboard"
+            aria-label="Score"
+          >
+            <div class="score-player">
+              <span>JIJ</span><b>{{ state.score[slot] }}</b>
+            </div>
+            <span class="score-divider">:</span>
+            <div class="score-player">
+              <b>{{ state.score[1 - slot] }}</b
+              ><span>{{ mode === "solo" ? "CPU" : "P" + (2 - slot) }}</span>
+            </div>
+          </div>
+          <div class="top-actions">
+            <button
+              v-if="page === 'play'"
+              class="icon-button"
+              @click="togglePause"
+              :aria-label="manualPause ? 'Verder spelen' : 'Pauzeren'"
+            >
+              {{ manualPause ? "▶" : "Ⅱ" }}
+            </button>
+            <button
+              v-if="!isPhone"
+              class="icon-button fullscreen-button"
+              @click="fullScreen"
+              aria-label="Volledig scherm"
+            >
+              ⛶
+            </button>
+            <button
+              class="icon-button"
+              @click="settingsOpen = true"
+              aria-label="Instellingen"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div v-if="error" class="error-banner" role="alert">
+          <span>{{ error }}</span
+          ><button @click="error = ''" aria-label="Melding sluiten">×</button>
+        </div>
+        <div v-if="!online" class="offline-badge" role="status">
+          Offline · demo beschikbaar
+        </div>
+
+        <main v-if="!isPhone" class="desktop-content">
+          <section v-if="page === 'home'" class="home">
+            <span class="eyebrow home-eyebrow">JE TELEFOON IS JE RACKET.</span>
+            <h1>GAME.<br />SET.<br /><em>PHONE.</em></h1>
+            <div class="mode-buttons">
+              <button
+                class="primary"
+                :disabled="busy"
+                @click="createRoom('solo')"
+              >
+                Singleplayer <span>↗</span>
+              </button>
+              <button
+                class="secondary"
+                :disabled="busy"
+                @click="createRoom('multi')"
+              >
+                Multiplayer <span>↗</span>
+              </button>
+            </div>
+            <button class="join-link" @click="joinOpen = true">
+              Meedoen met code <span>→</span>
+            </button>
+            <p v-if="busy" class="home-status" role="status">
+              {{ connectionText }} <button @click="leaveGame">Annuleren</button>
+            </p>
+          </section>
+          <footer v-if="page === 'home'" class="home-footer">
+            <span>SCAN. KANTEL. SLA.</span
+            ><button @click="startDemo">Probeer zonder telefoon →</button>
+          </footer>
+
+          <section v-if="page === 'lobby' || showPairing" class="lobby">
+            <div class="pair-card paper">
+              <button
+                v-if="showPairing"
+                class="close-button"
+                @click="showPairing = false"
+                aria-label="QR sluiten"
+              >
+                ×
+              </button>
+              <span class="eyebrow">JOUW RACKET</span>
+              <h2>{{ ownReady ? "Klaar voor de baan." : "Scan & speel." }}</h2>
+              <template v-if="!ownReady || showPairing">
+                <div
+                  class="qr-wrap"
+                  v-html="qrSvg"
+                  aria-label="QR-code om je telefoon te koppelen"
+                ></div>
+                <p class="compact">Scan met de camera van je telefoon.</p>
+                <button
+                  v-if="pairCode"
+                  class="pair-code"
+                  @click="copy(pairCode)"
+                  aria-label="Racketcode kopiëren"
+                >
+                  <span>RACKETCODE</span><b>{{ pairCode }}</b
+                  ><span>{{ copied ? "✓" : "⧉" }}</span>
+                </button>
+                <p v-if="!pairCode" class="compact">
+                  Publiceer ook de nieuwe Worker voor korte racketcodes.
+                </p>
+              </template>
+              <div v-else class="ready-mark" aria-hidden="true">✓</div>
+              <div class="ready-status" role="status">
+                <i class="status-dot" :class="{ ready: ownReady }"></i
+                >{{
+                  ownReady
+                    ? "Racket verbonden"
+                    : ownLinked
+                      ? "Tik op je telefoon op Racket activeren"
+                      : "Wachten op je telefoon"
+                }}
+              </div>
+              <div v-if="countdown" class="countdown" role="status">
+                We starten in <b>{{ countdown }}</b>
+              </div>
+              <p
+                v-else-if="ownReady && mode === 'multi' && !opponentReady"
+                class="compact"
+              >
+                Wachten op je tegenstander…
+              </p>
+              <p v-else-if="ownReady && slot === 1" class="compact">
+                De wedstrijd start zo…
+              </p>
+            </div>
+            <aside
+              v-if="mode === 'multi' && page === 'lobby'"
+              class="invite-card paper"
+            >
+              <span class="eyebrow">VOOR DE ANDERE LAPTOP</span>
+              <h2>Speel je mee?</h2>
+              <button
+                class="match-code"
+                @click="copy(roomCode)"
+                aria-label="Wedstrijdcode kopiëren"
+              >
+                {{ roomCode }}
+              </button>
+              <p>Kies ‘Meedoen met code’ op de andere laptop.</p>
+              <div class="ready-status">
+                <i class="status-dot" :class="{ ready: opponentReady }"></i
+                >{{
+                  opponentReady
+                    ? "Tegenstander klaar"
+                    : "Wachten op tegenstander"
+                }}
+              </div>
+            </aside>
+            <button
+              v-if="page === 'lobby'"
+              class="back-link"
+              @click="leaveGame"
+            >
+              ← Terug
+            </button>
+          </section>
+
+          <template v-if="page === 'play'">
+            <span
+              class="connection-dot"
+              :class="{ ready: canStart }"
+              :title="
+                transport + (latency !== null ? ' · ' + latency + ' ms' : '')
+              "
+              aria-label="Verbindingsstatus"
+            ></span>
+            <div v-if="!paused && state.phase === 'rally'" class="rally-chip">
+              RALLY <b>{{ state.rally }}</b>
+            </div>
+            <div v-if="!paused && state.phase === 'serve'" class="court-prompt">
+              <strong>{{
+                state.server === slot ? "Jij serveert." : "Even klaarstaan."
+              }}</strong
+              ><span>{{
+                state.server === slot
+                  ? keyboard
+                    ? "Spatie of klik om te slaan"
+                    : "Zwaai met je telefoon"
+                  : "Je tegenstander serveert"
+              }}</span>
+            </div>
+            <div
+              v-if="!paused && state.phase === 'rally' && state.hittable[slot]"
+              class="hit-prompt"
+            >
+              SLA!
+            </div>
+            <div v-if="!paused && state.phase === 'point'" class="point-prompt">
+              <strong>{{
+                state.event.slot === slot ? "JOUW PUNT!" : "PUNT TEGEN."
+              }}</strong
+              ><span>{{ state.message }}</span>
+            </div>
+            <div
+              v-if="
+                paused &&
+                state.phase !== 'over' &&
+                !showPairing &&
+                !settingsOpen
+              "
+              class="modal-layer"
+            >
+              <section
+                class="paper small-dialog pause-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pause-title"
+              >
+                <span class="eyebrow">TIME OUT</span>
+                <h2 id="pause-title">
+                  {{ manualPause ? "Even pauze." : "Even verbinden." }}
+                </h2>
+                <p>{{ pauseReason }}</p>
+                <button
+                  v-if="manualPause"
+                  class="primary wide"
+                  @click="togglePause"
+                >
+                  Verder spelen →</button
+                ><button
+                  v-else-if="!ownReady && !demo"
+                  class="primary wide"
+                  @click="showPairing = true"
+                >
+                  Koppel je racket</button
+                ><button class="text-button" @click="leaveGame">
+                  Terug naar start
+                </button>
+              </section>
+            </div>
+            <div
+              v-if="state.phase === 'over' && !settingsOpen"
+              class="modal-layer"
+            >
+              <section class="paper small-dialog victory">
+                <span class="eyebrow">GAME. SET. PHONE.</span>
+                <h2>
+                  {{ state.winner === slot ? "JIJ WINT!" : "NOG EENTJE?" }}
+                </h2>
+                <div class="final-score">
+                  {{ state.score[slot] }} <span>–</span>
+                  {{ state.score[1 - slot] }}
+                </div>
+                <p>Langste rally: {{ state.longestRally }} slagen</p>
+                <button
+                  v-if="slot === 0"
+                  class="primary wide"
+                  :disabled="!canStart"
+                  @click="startMatch"
+                >
+                  Nog een potje ↗
+                </button>
+                <p v-else>Je tegenstander kan opnieuw starten.</p>
+                <button class="text-button" @click="leaveGame">
+                  Terug naar start
+                </button>
+              </section>
+            </div>
+            <p v-if="keyboard && !paused" class="demo-hint">
+              SPATIE / KLIK · SLAAN &nbsp; ← → / MUIS · RICHTEN
+            </p>
+          </template>
+        </main>
+
+        <main v-else class="phone-content">
+          <section v-if="page === 'join-phone'" class="phone-join">
+            <span class="eyebrow">JOUW TELEFOON. JOUW RACKET.</span>
+            <h1>Klaar voor<br />de <em>rally?</em></h1>
+            <div class="phone-ball" aria-hidden="true">◒</div>
+            <p>Scan de QR op je laptop.<br />Of vul je racketcode in.</p>
+            <form @submit.prevent="joinPhone" class="phone-code-form">
+              <label for="racket-code">Racketcode</label
+              ><input
+                id="racket-code"
+                v-model="joinPair"
+                placeholder="ABC234"
+                maxlength="6"
+                autocapitalize="characters"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                aria-label="Racketcode"
+              /><button class="primary wide" :disabled="busy">
+                {{ busy ? "Koppelen…" : "Koppel mijn racket →" }}
+              </button>
+            </form>
+            <p v-if="busy" role="status" class="compact">
+              {{ connectionText }}
+            </p>
+          </section>
+          <section
+            v-if="page === 'phone'"
+            class="controller"
+            :class="{ 'phone-flash': phoneFlash }"
+          >
+            <div class="controller-top">
+              <span class="ready-status"
+                ><i class="status-dot" :class="{ ready: ownLinked }"></i
+                >{{ ownLinked ? "Verbonden" : "Verbinden…" }}</span
+              ><span v-if="padState.started" class="phone-score"
+                >{{ padState.ownScore }} <i>:</i>
+                {{ padState.otherScore }}</span
+              >
+            </div>
+            <div class="phone-racket" :style="racketStyle" aria-hidden="true">
+              <svg viewBox="0 0 200 340">
+                <defs>
+                  <pattern
+                    id="strings"
+                    width="11"
+                    height="11"
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <path
+                      d="M11 0H0V11"
+                      fill="none"
+                      stroke="#e3f4ce"
+                      stroke-width="1.5"
+                    />
+                  </pattern>
+                </defs>
+                <path
+                  d="M61 177L92 246H108L139 177M92 246V323Q100 334 108 323V246"
+                  fill="none"
+                  stroke="#0b2530"
+                  stroke-width="19"
+                />
+                <path
+                  d="M61 177L100 250L139 177"
+                  fill="none"
+                  stroke="#b5dce2"
+                  stroke-width="9"
+                />
+                <path d="M100 249V321" stroke="#def34b" stroke-width="20" />
+                <path
+                  d="M91 255L109 263M91 277L109 285M91 299L109 307"
+                  stroke="#ff975f"
+                  stroke-width="7"
+                />
+                <ellipse
+                  cx="100"
+                  cy="104"
+                  rx="69"
+                  ry="90"
+                  fill="url(#strings)"
+                  stroke="#0b2530"
+                  stroke-width="17"
+                />
+                <ellipse
+                  cx="100"
+                  cy="104"
+                  rx="70"
+                  ry="90"
+                  fill="none"
+                  stroke="#b5dce2"
+                  stroke-width="8"
+                />
+              </svg>
+            </div>
+            <h1>{{ phoneHeadline }}</h1>
+            <p class="phone-hint">
+              {{
+                motionStatus.active && !motionStatus.calibrated
+                  ? motionStatus.message
+                  : phoneHint
+              }}
+            </p>
+            <div class="controller-actions">
+              <button
+                v-if="!motionStatus.active"
+                class="primary wide"
+                @click="enableMotion"
+              >
+                Racket activeren ↗
+              </button>
+              <button
+                v-if="motionStatus.active && !motionStatus.calibrated"
+                class="secondary wide"
+                @click="calibrate"
+              >
+                Opnieuw richten
+              </button>
+              <template
+                v-if="
+                  motionStatus.touch ||
+                  (motionStatus.calibrated && !motionStatus.hasOrientation)
+                "
+                ><label class="aim-label" for="touch-aim">Richting</label
+                ><input
+                  id="touch-aim"
+                  type="range"
+                  min="-1"
+                  max="1"
+                  step="0.05"
+                  v-model.number="touchAim"
+                  @input="setManualAim"
+                /><button
+                  v-if="motionStatus.touch"
+                  class="primary wide hit-button"
+                  @pointerdown.prevent="touchSwing"
+                  @keydown.enter.prevent="touchSwing"
+                  @keydown.space.prevent="touchSwing"
+                >
+                  Sla!
+                </button></template
+              >
+              <button
+                v-if="motionStatus.calibrated && !motionStatus.touch"
+                class="recenter-button"
+                @click="calibrate"
+              >
+                ↻ Opnieuw richten
+              </button>
+              <p
+                v-if="!motionStatus.active && motionStatus.message"
+                class="sensor-message"
+                role="status"
+              >
+                {{ motionStatus.message }}
+                <button @click="useTouch">Tikbediening</button>
+              </p>
+            </div>
+            <span v-if="motionStatus.calibrated" class="phone-bottom"
+              >KIJK NAAR JE LAPTOP.</span
+            >
+          </section>
+        </main>
+
+        <div
+          v-if="joinOpen && !isPhone"
+          class="modal-layer"
+          @click.self="joinOpen = false"
+        >
+          <section
+            class="paper small-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="join-title"
+          >
+            <button
+              class="close-button"
+              @click="joinOpen = false"
+              aria-label="Sluiten"
+            >
+              ×</button
+            ><span class="eyebrow">MULTIPLAYER</span>
+            <h2 id="join-title">Doe mee.</h2>
+            <p>Vul de code van de andere laptop in.</p>
+            <form class="join-row" @submit.prevent="joinLaptop">
+              <label for="match-code">Wedstrijdcode</label
+              ><input
+                id="match-code"
+                v-model="joinCode"
+                placeholder="ABC234"
+                maxlength="6"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                required
+              /><button class="primary wide" :disabled="busy">
+                {{ busy ? "Verbinden…" : "De baan op →" }}
+              </button>
+            </form>
+          </section>
+        </div>
+        <div
+          v-if="settingsOpen"
+          class="modal-layer settings-layer"
+          @click.self="settingsOpen = false"
+        >
+          <section
+            class="paper settings-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+          >
+            <button
+              class="close-button"
+              @click="settingsOpen = false"
+              aria-label="Instellingen sluiten"
+            >
+              ×</button
+            ><span class="eyebrow">PENNIS / PHONE TENNIS</span>
+            <h2 id="settings-title">Even instellen.</h2>
+            <template v-if="!isPhone"
+              ><label class="setting-row"
+                >Geluid <input type="checkbox" v-model="sound" /></label
+              ><label v-if="page !== 'play'" class="setting-row"
+                >Tempo<select v-model="difficulty">
+                  <option value="easy">Rustig</option>
+                  <option value="normal">Normaal</option>
+                </select></label
+              ><label v-if="page === 'lobby'" class="setting-row"
+                >Toetsenbord gebruiken<input
+                  type="checkbox"
+                  v-model="keyboard" /></label
+            ></template>
+            <template v-else-if="page === 'phone'"
+              ><label class="setting-row"
+                >Gevoeligheid
+                <input
+                  type="range"
+                  min="0.6"
+                  max="1.8"
+                  step="0.1"
+                  v-model.number="sensitivity"
+                  @input="setSensitivity" /></label
+              ><button class="secondary wide" @click="useTouch">
+                Tikbediening gebruiken</button
+              ><button
+                v-if="motionStatus.touch"
+                class="text-button"
+                @click="
+                  enableMotion();
+                  settingsOpen = false;
+                "
+              >
+                Bewegingssensoren gebruiken
+              </button>
+              <p class="settings-note">
+                {{
+                  screenLocked
+                    ? "Portretstand is vergrendeld."
+                    : "De controller houdt dezelfde stand, ook als het scherm draait. Op een iPhone kun je daarnaast het rotatieslot aanzetten in het Bedieningspaneel."
+                }}
+              </p></template
+            >
+            <button
+              v-if="!pwa.installed"
+              class="primary wide"
+              @click="installApp"
+            >
+              Pennis installeren ↓
+            </button>
+            <p v-else class="settings-note">Pennis is geïnstalleerd ✓</p>
+            <p v-if="installHelp" class="settings-note">
+              iPhone: Delen → Zet op beginscherm.<br />Android/desktop:
+              browsermenu → App installeren of Toevoegen aan startscherm.
+            </p>
+            <button
+              v-if="pwa.updateAvailable"
+              class="secondary wide"
+              @click="applyUpdate"
+            >
+              Update installeren en herladen
+            </button>
+            <details class="help-details">
+              <summary>Hoe speel je?</summary>
+              <p>
+                Start op je laptop. Scan de QR met je telefoon, activeer het
+                racket en houd even stil. Kantel om te richten, zwaai om te
+                slaan. Je loopt automatisch. De eerste tot 7 met twee punten
+                verschil wint.
+              </p>
+              <p>
+                Singleplayer: 1 laptop + 1 telefoon. Multiplayer: ieder een
+                laptop en een telefoon.
+              </p>
+              <p v-if="page === 'play' || page === 'lobby' || page === 'phone'">
+                Verbinding: {{ transport
+                }}{{ latency !== null ? " · " + latency + " ms" : "" }}
+              </p>
+              <p>
+                De demo werkt offline; telefoonkoppeling heeft internet nodig.
+              </p>
+              <a v-if="isPhone" href="./?desktop=1"
+                >Speelscherm op dit apparaat openen</a
+              ><a v-else href="./?controller=1"
+                >Controller op dit apparaat openen</a
+              >
+            </details>
+            <button
+              v-if="page !== 'home' && page !== 'join-phone'"
+              class="text-button"
+              @click="leaveGame"
+            >
+              Verbinding verbreken
+            </button>
+          </section>
+        </div>
+      </div>
+    </div>
+    <noscript>Schakel JavaScript in om Pennis te spelen.</noscript>
+  </body>
+</html>
