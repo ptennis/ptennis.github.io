@@ -384,6 +384,8 @@ button:active:not(:disabled) {
 }
 .pair-card {
   width: 350px;
+  top: 50vh;
+  bottom: 50vh;
   text-align: center;
   flex-shrink: 0;
 }
