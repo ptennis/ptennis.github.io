@@ -1,13 +1,10 @@
-// GitHub Pages gebruikt dezelfde Cloudflare Worker als het oorspronkelijke spel.
-// Verander alleen dit adres als jouw Worker een andere naam heeft gekregen.
-export const SIGNALING_WORKER =
-  "https://webrtc-signaling.zoute-popcorn.workers.dev";
+export const SIGNALING_WORKER = "https://webrtc-signaling.zoute-popcorn.workers.dev";
 
 export function signalingURL(page = location) {
-  const separateHosting = page.hostname.endsWith(".github.io");
+  const isLocal = page.hostname === "localhost" || page.hostname === "127.0.0.1";
   const url = new URL(
-    "/signal",
-    separateHosting ? SIGNALING_WORKER : page.href,
+      "/signal",
+      isLocal ? page.href : SIGNALING_WORKER,
   );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url;
